@@ -7,15 +7,25 @@ pipeline {
             }
         }
         stage('Build') {
-            steps { sh 'mvn clean compile' }
+            steps {
+                dir('backend') {
+                    sh 'mvn clean compile'
+                }
+            }
         }
         stage('Tests') {
-            steps { sh 'mvn test' }
+            steps {
+                dir('backend') {
+                    sh 'mvn test'
+                }
+            }
         }
         stage('SonarQube') {
             steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh 'mvn sonar:sonar'
+                dir('backend') {
+                    withSonarQubeEnv('SonarQube') {
+                        sh 'mvn sonar:sonar'
+                    }
                 }
             }
         }
@@ -27,7 +37,11 @@ pipeline {
             }
         }
         stage('Package') {
-            steps { sh 'mvn package -DskipTests' }
+            steps {
+                dir('backend') {
+                    sh 'mvn package -DskipTests'
+                }
+            }
         }
     }
 }
