@@ -1,63 +1,33 @@
 pipeline {
     agent any
-
     stages {
-
-        stage('Checkout') {
+        stage('GIT') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/haddadmoh/DevOps-AppGestionDesProjets.git'
+                git branch: 'main', url: 'https://github.com/haddadmoh/DevOps-AppGestionDesProjets.git'
             }
         }
-
-        stage('Build Backend Image') {
+        stage('Build') {
+            steps { sh 'mvn clean compile' }
+        }
+        stage('Tests') {
+            steps { sh 'mvn test' }
+        }
+        stage('SonarQube') {
             steps {
-                dir('backend') {
-                    sh 'docker build -t gestion-projets-backend:latest .'
+                withSonarQubeEnv('SonarQube') {
+                    sh 'mvn sonar:sonar'
                 }
             }
         }
-
-        stage('Build Frontend Image') {
+        stage('Quality Gate') {
             steps {
-                dir('frontend') {
-                    sh 'docker build -t gestion-projets-frontend:latest .'
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
-
-        stage('Deploy with Docker Compose') {
-            steps {
-                sh 'docker compose down || true'
-                sh 'docker compose up -d --build'
-            }
-        }
-
-        stage('Verify Containers') {
-            steps {
-                sh '''
-                    sleep 15
-                    docker compose ps
-                '''
-            }
-        }
-
-        stage('Health Check') {
-            steps {
-                sh '''
-                    curl -f http://localhost:8080/entreprise/all || echo "Backend not responding"
-                    curl -f http://localhost:4200 || echo "Frontend not responding"
-                '''
-            }
-        }
-    }
-
-    post {
-        success {
-            echo 'Pipeline terminé avec succès : application déployée.'
-        }
-        failure {
-            echo 'Le pipeline a échoué. Vérifiez les logs ci-dessus.'
+        stage('Package') {
+            steps { sh 'mvn package -DskipTests' }
         }
     }
 }
