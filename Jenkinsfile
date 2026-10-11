@@ -16,7 +16,9 @@ pipeline {
         stage('Tests') {
             steps {
                 dir('backend') {
-                    sh 'mvn test'
+                    withEnv(['DB_HOST=localhost', 'DB_PORT=3307', 'DB_NAME=ci_db', 'DB_USER=root', 'DB_PASSWORD=root']) {
+                        sh 'mvn test'
+                    }
                 }
             }
         }
