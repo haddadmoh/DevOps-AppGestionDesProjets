@@ -1,6 +1,12 @@
 pipeline {
     agent any
 
+    environment {
+        DOCKERHUB_USER = 'mouhamedhaddad'
+        TAG            = "${BUILD_NUMBER}"
+        K8S_DIR        = '/home/vagrant/homework_lab4/k8s'
+    }
+
     stages {
 
         // =====================================================
@@ -64,22 +70,41 @@ pipeline {
 
         stage('CD - Build Docker Images') {
             steps {
-                sh 'docker compose build'
+                sh 'docker build -t $DOCKERHUB_USER/backend:$TAG ./backend'
+                sh 'docker build -t $DOCKERHUB_USER/frontend:$TAG ./frontend'
             }
         }
 
-        stage('CD - Deploy') {
+        stage('CD - Push DockerHub') {
             steps {
-                sh 'docker compose down || true'
-                sh 'docker compose up -d'
+                withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'HUB_USER',
+                        passwordVariable: 'HUB_PASS')]) {
+                    sh 'echo $HUB_PASS | docker login -u $HUB_USER --password-stdin'
+                    sh 'docker push $DOCKERHUB_USER/backend:$TAG'
+                    sh 'docker push $DOCKERHUB_USER/frontend:$TAG'
+                }
             }
         }
 
-        stage('CD - Verify Containers') {
+        stage('CD - Deploy K8s') {
+            steps {
+                sh '''
+                    kubectl apply -f $K8S_DIR/mysql-deployment.yaml
+
+                    sed -E "s|image: .*/backend:.*|image: $DOCKERHUB_USER/backend:$TAG|" $K8S_DIR/spring-deployment.yaml | kubectl apply -f -
+                    sed -E "s|image: .*/frontend:.*|image: $DOCKERHUB_USER/frontend:$TAG|" $K8S_DIR/frontend-deployment.yaml | kubectl apply -f -
+                '''
+            }
+        }
+
+        stage('CD - Verify Pods') {
             steps {
                 sh '''
                     sleep 15
-                    docker compose ps
+                    kubectl get pods -n devops
+                    kubectl get svc -n devops
                 '''
             }
         }
@@ -87,13 +112,14 @@ pipeline {
         stage('CD - Health Check') {
             steps {
                 sh '''
-                    for i in $(seq 1 12); do
-                        curl -sf http://localhost:8081/entreprise/all > /dev/null && break
-                        echo "Backend not ready yet (try $i/12)..."
+                    NODE_IP=$(minikube ip)
+                    for i in $(seq 1 24); do
+                        curl -sf http://$NODE_IP:30081/entreprise/all > /dev/null && break
+                        echo "Backend not ready yet (try $i/24)..."
                         sleep 5
                     done
-                    curl -f http://localhost:8081/entreprise/all
-                    curl -f http://localhost:4200
+                    curl -f http://$NODE_IP:30081/entreprise/all
+                    curl -f http://$NODE_IP:30080
                 '''
             }
         }
@@ -101,10 +127,13 @@ pipeline {
 
     post {
         success {
-            echo 'CI/CD terminé avec succès : application testée, analysée et déployée.'
+            echo 'CI/CD terminé avec succès : application testée, analysée et déployée sur Kubernetes.'
         }
         failure {
             echo 'Le pipeline a échoué. Vérifiez les logs ci-dessus.'
+        }
+        always {
+            sh 'docker logout || true'
         }
     }
 }
